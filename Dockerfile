@@ -1,4 +1,4 @@
-FROM node:24.20-trixie-slim AS frontend
+FROM node:24.22.1-trixie-slim AS frontend
 WORKDIR /opt/frontend
 
 ARG FRONTEND_REPO=https://github.com/Cd1s/remnawave-frontend.git
@@ -24,7 +24,7 @@ RUN npm ci --prefer-offline --no-audit --no-fund \
     && curl -L ${MIHOMO_SCHEMA_URL} -o dist/assets/mihomo.schema.json \
     && curl -L https://validator.remna.dev/main.wasm -o dist/assets/main.wasm
 
-FROM node:24.21-trixie-slim AS backend-build
+FROM node:24.22.1-trixie-slim AS backend-build
 WORKDIR /opt/app
 
 COPY package*.json ./
@@ -61,7 +61,7 @@ RUN cd node_modules/@prisma/client/runtime && \
     find node_modules \( -name '*.js.map' -o -name '*.mjs.map' \) -delete && \
     find node_modules \( -name '*.d.ts' -o -name '*.d.cts' -o -name '*.d.mts' \) -delete
 
-FROM node:24.21-trixie-slim
+FROM node:24.22.1-trixie-slim
 
 LABEL org.opencontainers.image.title="Remnawave Dual Core"
 LABEL org.opencontainers.image.description="Remnawave with Xray, sing-box and AnyTLS support"
