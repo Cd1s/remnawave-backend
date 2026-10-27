@@ -26,11 +26,24 @@ fail_reason() {
     exit 1
 }
 
+# The paginated releases list intermittently returns []; retry before treating it as "no stable release".
+releases_with_retry() {
+    local out="" attempt
+    for attempt in 1 2 3; do
+        if out="$(gh api "repos/${UPSTREAM_REPO}/releases?per_page=100")" && [ "$out" != "[]" ]; then
+            printf '%s\n' "$out"
+            return 0
+        fi
+        [ "$attempt" = 3 ] || sleep 10
+    done
+    [ -n "$out" ] && printf '%s\n' "$out"
+}
+
 resolve_release() {
     : "${UPSTREAM_REPO:?UPSTREAM_REPO is required}"
     : "${GITHUB_OUTPUT:?GITHUB_OUTPUT is required}"
     release_error="$(mktemp)"
-    if ! release_json="$(gh api "repos/${UPSTREAM_REPO}/releases?per_page=100" 2>"$release_error")"; then
+    if ! release_json="$(releases_with_retry 2>"$release_error")"; then
         cat "$release_error" >&2
         fail_reason release_query_error repo="$UPSTREAM_REPO"
     fi
