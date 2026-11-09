@@ -77,6 +77,7 @@ export interface IResolveProxyConfigOptions {
         respondWithRemarks?: string[];
     };
     excludeHostsByTags?: ISRRContext['excludeHostsByTags'];
+    matchedRuleName?: ISRRContext['matchedRuleName'];
 }
 
 @Injectable()
@@ -94,11 +95,25 @@ export class ResolveProxyConfigService {
     public async resolveProxyConfig(
         options: IResolveProxyConfigOptions,
     ): Promise<ResolvedProxyConfig[]> {
-        const { user, hostsOverrides, subscriptionSettings, fallbackOptions, excludeHostsByTags } =
-            options;
+        const {
+            user,
+            hostsOverrides,
+            subscriptionSettings,
+            fallbackOptions,
+            excludeHostsByTags,
+            matchedRuleName,
+        } = options;
 
         if (subscriptionSettings === null) {
             return [];
+        }
+
+        if (matchedRuleName) {
+            options.hosts = options.hosts.filter(
+                (h) =>
+                    h.includeInSrrRules.length === 0 ||
+                    h.includeInSrrRules.includes(matchedRuleName),
+            );
         }
 
         if (excludeHostsByTags) {
