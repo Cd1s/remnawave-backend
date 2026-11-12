@@ -314,7 +314,7 @@ test_workflow_contract_and_order() {
     ! file_contains "$WORKFLOW" 'refs/tags/${{ steps.release.outputs.tag }}:refs/tags/upstream-release-${{ steps.release.outputs.tag }}' || return 1
     file_contains "$WORKFLOW" 'git fetch --no-tags upstream main' || return 1
     file_contains "$WORKFLOW" 'git fetch --no-tags upstream "$UPSTREAM_REF"' || return 1
-    file_contains "$WORKFLOW" 'Install official sing-box 1.13.15 validator' || return 1
+    file_contains "$WORKFLOW" 'Install official sing-box 1.14.4 validator' || return 1
     file_contains "$WORKFLOW" 'Install official Mihomo validator' || return 1
     file_contains "$WORKFLOW" 'token: ${{ secrets.GITHUB_TOKEN }}' || return 1
     ! file_contains "$WORKFLOW" 'token: ${{ secrets.WORKFLOW_TOKEN }}' || return 1

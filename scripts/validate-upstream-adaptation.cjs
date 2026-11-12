@@ -11,7 +11,7 @@ const requiredFiles = [
     'prisma/migrations/20260716190000_add_config_profile_core_type/migration.sql',
     'scripts/validate-clash-anytls.cjs',
     'scripts/validate-mihomo-anytls.cjs',
-    'scripts/validate-singbox-1.13-compatibility.cjs',
+    'scripts/validate-singbox-compatibility.cjs',
     'scripts/validate-seed-core-inbounds.cjs',
     'scripts/validate-shadowrocket-anytls.cjs',
 ];

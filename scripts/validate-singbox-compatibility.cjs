@@ -50,7 +50,7 @@ function assertAnyTlsOutbound(config) {
 
 function assertMigratedTemplate(config) {
     assert.equal(config.dns.fakeip, undefined);
-    assert.equal(config.dns.independent_cache, true);
+    assert.equal(config.dns.independent_cache, undefined);
     assert.ok(config.dns.servers.every((server) => server.type && !server.address));
     assert.deepEqual(config.route.default_domain_resolver, {
         server: 'local',
@@ -113,11 +113,16 @@ function runCheck(binary, configPath) {
         maxBuffer: 1024 * 1024,
     });
 
+    const details = `${result.stderr || ''}${result.stdout || ''}`.trim();
     if (result.status !== 0) {
-        const details = `${result.stderr || ''}${result.stdout || ''}`.trim();
         throw new Error(
-            `sing-box 1.13.15 rejected the default template (exit=${result.status}): ${details}`,
+            `sing-box rejected the default template (exit=${result.status}): ${details}`,
         );
+    }
+
+    // Deprecated fields become fatal in the next sing-box minor release unless clients opt in.
+    if (/deprecated/i.test(details)) {
+        throw new Error(`sing-box reported deprecated fields in the default template: ${details}`);
     }
 }
 
@@ -128,23 +133,23 @@ async function main() {
     await assertGeneratedAnyTlsOutbound();
 
     if (process.argv.includes('--skip-binary')) {
-        process.stdout.write('singbox_1_13_binary_check=skipped\n');
+        process.stdout.write('singbox_binary_check=skipped\n');
         process.stdout.write('singbox_anytls_outbound_valid=true\n');
         return;
     }
 
     const binary = resolveBinary();
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'remnawave-singbox-1-13-'));
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'remnawave-singbox-'));
     const configPath = path.join(tempDir, 'config.json');
     fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
     runCheck(binary, configPath);
-    process.stdout.write(`singbox_1_13_binary_check=passed binary=${binary}\n`);
+    process.stdout.write(`singbox_binary_check=passed binary=${binary}\n`);
     process.stdout.write('singbox_anytls_outbound_valid=true\n');
 }
 
 try {
     main();
 } catch (error) {
-    console.error(`singbox_1_13_validation=failed reason=${error.message}`);
+    console.error(`singbox_validation=failed reason=${error.message}`);
     process.exitCode = 1;
 }
