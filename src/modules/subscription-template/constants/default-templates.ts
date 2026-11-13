@@ -198,7 +198,6 @@ export const DEFAULT_TEMPLATE_SINGBOX = {
                 inet6_range: 'fc00::/18',
             },
         ],
-        independent_cache: true,
     },
     log: {
         disabled: true,

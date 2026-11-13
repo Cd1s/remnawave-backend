@@ -36,7 +36,7 @@ type GrpcConfig = Extract<ResolvedProxyConfig, { transport: 'grpc' }>;
 type KcpConfig = Extract<ResolvedProxyConfig, { transport: 'kcp' }>;
 type HysteriaTransportConfig = Extract<ResolvedProxyConfig, { transport: 'hysteria' }>;
 
-const UNSUPPORTED_PROTOCOLS = new Set(['anytls']);
+const UNSUPPORTED_PROTOCOLS = new Set(['anytls', 'tuic']);
 
 type TransportBuilderMap = {
     hysteria: (host: HysteriaTransportConfig) => Record<string, unknown>;
@@ -337,6 +337,8 @@ export class XrayJsonGeneratorService {
                 return PROTOCOL_BUILDERS.hysteria(host);
             case 'anytls':
                 throw new Error('AnyTLS is not supported by Xray JSON subscriptions.');
+            case 'tuic':
+                throw new Error('TUIC is not supported by Xray JSON subscriptions.');
         }
     }
 

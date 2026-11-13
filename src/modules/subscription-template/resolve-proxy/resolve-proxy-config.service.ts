@@ -16,6 +16,13 @@ import { Injectable } from '@nestjs/common';
 
 import { TypedConfigService } from '@common/config/app-config';
 import {
+    getSingBoxSsUserPassword,
+    getSingBoxVlessFlow,
+    isSingBoxRealityEnabled,
+    isSingBoxSs2022Method,
+    isSingBoxTlsRequired,
+} from '@common/helpers/core-config/singbox-inbound';
+import {
     resolveEncryptionFromDecryption,
     resolveInboundAndMlDsa65PublicKey,
     resolveInboundAndPublicKey,
@@ -51,11 +58,27 @@ interface ISingBoxInbound {
     type: string;
     tag?: string;
     method?: string;
+    password?: string;
     network?: string | string[];
+    congestion_control?: string;
+    zero_rtt_handshake?: boolean;
+    multiplex?: {
+        enabled?: boolean;
+    };
+    obfs?: {
+        type?: string;
+        password?: string;
+        min_packet_size?: number;
+        max_packet_size?: number;
+    };
     tls?: {
         enabled?: boolean;
         server_name?: string;
         alpn?: string[];
+        reality?: {
+            enabled?: boolean;
+            short_id?: string | string[];
+        };
     };
     transport?: {
         type?: string;
@@ -63,6 +86,8 @@ interface ISingBoxInbound {
         path?: string;
         headers?: Record<string, string | string[]>;
         service_name?: string;
+        max_early_data?: number;
+        early_data_header_name?: string;
     };
 }
 
@@ -525,46 +550,7 @@ export class ResolveProxyConfigService {
         encryption?: string,
     ): ProtocolVariant | null {
         if (this.isSingBoxInbound(inbound)) {
-            switch (inbound.type) {
-                case 'anytls':
-                    return {
-                        protocol: 'anytls',
-                        protocolOptions: {
-                            password: user.vlessUuid,
-                        },
-                    };
-                case 'vless':
-                    return {
-                        protocol: 'vless',
-                        protocolOptions: {
-                            id: setVlessRouteForUuid(user.vlessUuid, inputHost.vlessRouteId),
-                            encryption: 'none',
-                            flow: '',
-                        },
-                    };
-                case 'trojan':
-                    return {
-                        protocol: 'trojan',
-                        protocolOptions: {
-                            password: user.trojanPassword,
-                        },
-                    };
-                case 'shadowsocks':
-                    return {
-                        protocol: 'shadowsocks',
-                        protocolOptions: {
-                            method: inbound.method || 'chacha20-ietf-poly1305',
-                            password: getSsPassword(
-                                user.ssPassword,
-                                isSS2022MethodFromMethod(inbound.method),
-                            ),
-                            uot: false,
-                            uotVersion: 1,
-                        },
-                    };
-                default:
-                    return null;
-            }
+            return this.resolveSingBoxProtocolOptions(inbound, user);
         }
 
         if (!inbound.settings) {
@@ -644,13 +630,17 @@ export class ResolveProxyConfigService {
 
         const isSingBoxInbound = this.isSingBoxInbound(inbound);
         const transport = isSingBoxInbound
-            ? this.resolveSingBoxTransport(inbound, inputHost)
+            ? this.resolveSingBoxTransport(inbound, inputHost, user)
             : this.resolveTransport(inbound.streamSettings, inputHost, protocol, {
                   vlessUuid: user.vlessUuid,
               });
 
+        if (!transport) {
+            return null;
+        }
+
         const security = isSingBoxInbound
-            ? this.resolveSingBoxSecurity(inbound, inputHost, address)
+            ? this.resolveSingBoxSecurity(inbound, inputHost, ctx.publicKeyMap, address)
             : this.resolveSecurity(
                   inbound.streamSettings,
                   inputHost,
@@ -665,10 +655,12 @@ export class ResolveProxyConfigService {
             address: address,
             port: inputHost.port,
             streamOverrides: {
-                finalMask: override(
-                    toNonEmptyRecord(inputHost.finalMask),
-                    isSingBoxInbound ? null : toNonEmptyRecord(inbound.streamSettings?.finalmask),
-                ),
+                finalMask: isSingBoxInbound
+                    ? this.resolveSingBoxFinalMask(inbound, inputHost)
+                    : override(
+                          toNonEmptyRecord(inputHost.finalMask),
+                          toNonEmptyRecord(inbound.streamSettings?.finalmask),
+                      ),
                 sockopt: toNonEmptyRecord(inputHost.sockoptParams),
             },
             mux: toNonEmptyRecord(inputHost.muxParams),
@@ -710,13 +702,99 @@ export class ResolveProxyConfigService {
         );
     }
 
+    private resolveSingBoxProtocolOptions(
+        inbound: ISingBoxInbound,
+        user: UserEntity,
+    ): ProtocolVariant | null {
+        switch (inbound.type) {
+            case 'anytls':
+                return {
+                    protocol: 'anytls',
+                    protocolOptions: {
+                        password: user.vlessUuid,
+                    },
+                };
+            case 'vless':
+                // sing-box matches the full UUID, so Xray VLESS route IDs are not applied.
+                return {
+                    protocol: 'vless',
+                    protocolOptions: {
+                        id: user.vlessUuid,
+                        encryption: 'none',
+                        flow: getSingBoxVlessFlow(inbound),
+                    },
+                };
+            case 'trojan':
+                return {
+                    protocol: 'trojan',
+                    protocolOptions: {
+                        password: user.trojanPassword,
+                    },
+                };
+            case 'shadowsocks': {
+                const userPassword = getSingBoxSsUserPassword(inbound, user.ssPassword);
+                if (userPassword === null || !inbound.method) return null;
+
+                return {
+                    protocol: 'shadowsocks',
+                    protocolOptions: {
+                        method: inbound.method,
+                        password: isSingBoxSs2022Method(inbound.method)
+                            ? `${inbound.password}:${userPassword}`
+                            : userPassword,
+                        uot: false,
+                        uotVersion: 1,
+                    },
+                };
+            }
+            case 'hysteria2':
+                return {
+                    protocol: 'hysteria',
+                    protocolOptions: {
+                        version: 2,
+                    },
+                };
+            case 'tuic':
+                return {
+                    protocol: 'tuic',
+                    protocolOptions: {
+                        uuid: user.vlessUuid,
+                        password: user.vlessUuid,
+                        congestionControl: inbound.congestion_control || 'cubic',
+                        zeroRttHandshake: inbound.zero_rtt_handshake === true,
+                    },
+                };
+            default:
+                return null;
+        }
+    }
+
+    /** Returns null for sing-box transports that subscription formats cannot represent. */
     private resolveSingBoxTransport(
         inbound: ISingBoxInbound,
         inputHost: HostWithRawInbound,
-    ): TransportVariant {
+        user: UserEntity,
+    ): TransportVariant | null {
+        if (inbound.type === 'hysteria2') {
+            return {
+                transport: 'hysteria',
+                transportOptions: {
+                    version: 2,
+                    auth: user.vlessUuid,
+                },
+            };
+        }
+
         const transport = inbound.transport;
 
         switch (transport?.type) {
+            case undefined:
+                return {
+                    transport: 'tcp',
+                    transportOptions: {
+                        header: null,
+                    },
+                };
             case 'ws': {
                 const rawHost = Array.isArray(transport.headers?.Host)
                     ? transport.headers.Host[0]
@@ -724,7 +802,10 @@ export class ResolveProxyConfigService {
                 return {
                     transport: 'ws',
                     transportOptions: {
-                        path: override(inputHost.path, transport.path),
+                        path: this.withSingBoxWsEarlyData(
+                            override(inputHost.path, transport.path),
+                            transport,
+                        ),
                         host: this.resolveRandomizedValue(override(inputHost.host, rawHost) ?? ''),
                         headers: this.normalizeSingBoxHeaders(transport.headers),
                         heartbeatPeriod: null,
@@ -752,29 +833,74 @@ export class ResolveProxyConfigService {
                     },
                 };
             default:
-                return {
-                    transport: 'tcp',
-                    transportOptions: {
-                        header: null,
-                    },
-                };
+                return null;
         }
+    }
+
+    /**
+     * sing-box puts WebSocket early data in the path unless a header name is set; clients only
+     * understand the Xray `?ed=` path form for the `Sec-WebSocket-Protocol` header variant.
+     */
+    private withSingBoxWsEarlyData(
+        path: string | null,
+        transport: NonNullable<ISingBoxInbound['transport']>,
+    ): string | null {
+        const maxEarlyData = transport.max_early_data;
+        if (
+            !maxEarlyData ||
+            transport.early_data_header_name !== 'Sec-WebSocket-Protocol' ||
+            path?.includes('?ed=')
+        ) {
+            return path;
+        }
+
+        return `${path || '/'}?ed=${maxEarlyData}`;
     }
 
     private resolveSingBoxSecurity(
         inbound: ISingBoxInbound,
         inputHost: HostWithRawInbound,
+        publicKeyMap: Map<string, string>,
         resolvedAddress: string,
     ): SecurityVariant {
-        const tlsEnabled =
-            inbound.type === 'anytls' ||
-            (inputHost.securityLayer === SECURITY_LAYERS.DEFAULT
-                ? inbound.tls?.enabled === true
-                : inputHost.securityLayer === SECURITY_LAYERS.TLS);
+        let effectiveSecurity: 'none' | 'reality' | 'tls' = 'none';
 
-        if (!tlsEnabled) {
+        if (isSingBoxTlsRequired(inbound.type)) {
+            effectiveSecurity = 'tls';
+        } else if (inputHost.securityLayer === SECURITY_LAYERS.TLS) {
+            effectiveSecurity = 'tls';
+        } else if (inputHost.securityLayer === SECURITY_LAYERS.DEFAULT) {
+            if (isSingBoxRealityEnabled(inbound)) {
+                effectiveSecurity = 'reality';
+            } else if (inbound.tls?.enabled === true) {
+                effectiveSecurity = 'tls';
+            }
+        }
+
+        if (effectiveSecurity === 'none') {
             return {
                 security: 'none',
+            };
+        }
+
+        if (effectiveSecurity === 'reality') {
+            const shortIds = inbound.tls?.reality?.short_id;
+            const shortId = Array.isArray(shortIds) ? (shortIds[0] ?? '') : (shortIds ?? '');
+
+            return {
+                security: 'reality',
+                securityOptions: {
+                    fingerprint: inputHost.fingerprint ?? 'chrome',
+                    publicKey: publicKeyMap.get(inbound.tag ?? '') ?? '',
+                    shortId,
+                    serverName: this.resolveFinalServerName(
+                        inputHost,
+                        inbound.tls?.server_name,
+                        resolvedAddress,
+                    ),
+                    spiderX: '',
+                    mldsa65Verify: null,
+                },
             };
         }
 
@@ -798,6 +924,33 @@ export class ResolveProxyConfigService {
                 pinnedPeerCertSha256: inputHost.pinnedPeerCertSha256,
                 verifyPeerCertByName: inputHost.verifyPeerCertByName,
             },
+        };
+    }
+
+    /**
+     * Hysteria2 obfuscation lives on the sing-box inbound; generators read it from the Xray-style
+     * finalMask. Gecko is Xray's salamander mask with a packet size range. Host finalMask keys take
+     * precedence over the inbound-derived ones.
+     */
+    private resolveSingBoxFinalMask(
+        inbound: ISingBoxInbound,
+        inputHost: HostWithRawInbound,
+    ): Record<string, unknown> | null {
+        const hostFinalMask = toNonEmptyRecord(inputHost.finalMask);
+        const obfs = inbound.type === 'hysteria2' ? inbound.obfs : undefined;
+
+        if (!obfs?.password || (obfs.type !== 'salamander' && obfs.type !== 'gecko')) {
+            return hostFinalMask;
+        }
+
+        const settings: Record<string, unknown> = { password: obfs.password };
+        if (obfs.type === 'gecko') {
+            settings.packetSize = `${obfs.min_packet_size ?? 512}-${obfs.max_packet_size ?? 1200}`;
+        }
+
+        return {
+            udp: [{ type: 'salamander', settings }],
+            ...hostFinalMask,
         };
     }
 

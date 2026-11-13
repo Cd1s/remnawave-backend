@@ -12,7 +12,8 @@ interface ShareLink {
     password: string;
     port: number;
     remark: string;
-    scheme: 'anytls' | 'hysteria2' | 'ss' | 'trojan' | 'vless';
+    scheme: 'anytls' | 'hysteria2' | 'ss' | 'trojan' | 'tuic' | 'vless';
+    username?: string;
 }
 
 const LINK_TARGET_PREFIX = '$link.';
@@ -92,6 +93,8 @@ export class XrayGeneratorService {
                 return this.buildHysteria2Link(host);
             case 'anytls':
                 return this.buildAnyTlsLink(host);
+            case 'tuic':
+                return this.buildTuicLink(host);
             default:
                 return null;
         }
@@ -252,6 +255,44 @@ export class XrayGeneratorService {
         return {
             scheme: 'hysteria2',
             password: host.transportOptions.auth,
+            address: host.address,
+            port: host.port,
+            remark: host.finalRemark,
+            params,
+        };
+    }
+
+    // ── TUIC v5 ──────────────────────────────────────
+    // tuic://uuid:password@host:port?sni=...&congestion_control=...#remark
+
+    private buildTuicLink(
+        host: Extract<ResolvedProxyConfig, { protocol: 'tuic' }>,
+    ): null | ShareLink {
+        if (host.security !== 'tls') return null;
+
+        const opts = host.securityOptions;
+        const params: Record<string, unknown> = {
+            congestion_control: host.protocolOptions.congestionControl,
+            udp_relay_mode: 'native',
+        };
+
+        if (opts.serverName) {
+            params.sni = opts.serverName;
+        }
+        if (opts.alpn) {
+            params.alpn = opts.alpn;
+        }
+        if (opts.pinnedPeerCertSha256) {
+            params.allow_insecure = 1;
+        }
+        if (host.protocolOptions.zeroRttHandshake) {
+            params.reduce_rtt = 1;
+        }
+
+        return {
+            scheme: 'tuic',
+            username: host.protocolOptions.uuid,
+            password: host.protocolOptions.password,
             address: host.address,
             port: host.port,
             remark: host.finalRemark,
@@ -543,6 +584,9 @@ export class XrayGeneratorService {
 
             case 'anytls':
                 return `anytls://${encodeURIComponent(link.password)}@${address}:${link.port}?${query}#${remark}`;
+
+            case 'tuic':
+                return `tuic://${encodeURIComponent(link.username ?? '')}:${encodeURIComponent(link.password)}@${address}:${link.port}?${query}#${remark}`;
 
             default:
                 return `${link.scheme}://${encodeURIComponent(link.password)}@${address}:${link.port}?${query}#${remark}`;

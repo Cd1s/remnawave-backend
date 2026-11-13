@@ -159,7 +159,7 @@ export class MihomoGeneratorService {
                 if (UNSUPPORTED_PROTOCOLS.has(host.protocol)) continue;
                 if (isStash && host.transport === 'xhttp') continue;
 
-                const node = this.buildProxyNode(host, isExtendedClient);
+                const node = this.buildProxyNode(host, isExtendedClient, isStash);
                 if (!node) continue;
 
                 data.proxies.push(node);
@@ -173,8 +173,12 @@ export class MihomoGeneratorService {
         }
     }
 
-    private buildProxyNode(host: ResolvedProxyConfig, isExtendedClient: boolean): ProxyNode | null {
-        const node = this.buildBaseProxyNode(host, isExtendedClient);
+    private buildProxyNode(
+        host: ResolvedProxyConfig,
+        isExtendedClient: boolean,
+        isStash = false,
+    ): ProxyNode | null {
+        const node = this.buildBaseProxyNode(host, isExtendedClient, isStash);
 
         if (!node) return null;
 
@@ -184,9 +188,14 @@ export class MihomoGeneratorService {
     private buildBaseProxyNode(
         host: ResolvedProxyConfig,
         isExtendedClient: boolean,
+        isStash: boolean,
     ): ProxyNode | null {
         if (host.protocol === 'hysteria') {
             return this.buildHysteria2Node(host, isExtendedClient);
+        }
+
+        if (host.protocol === 'tuic') {
+            return this.buildTuicNode(host, isExtendedClient, isStash);
         }
 
         if (host.protocol === 'anytls' && host.security === 'reality') {
@@ -697,6 +706,45 @@ export class MihomoGeneratorService {
             ...this.buildHysteria2QuicFields(host.streamOverrides.finalMask),
             ...this.buildHysteria2ObfsFields(host.streamOverrides.finalMask),
             ...this.buildHysteria2TlsFields(host),
+        };
+
+        if (isExtendedClient && host.clientOverrides.serverDescription) {
+            node.serverDescription = Buffer.from(
+                host.clientOverrides.serverDescription,
+                'base64',
+            ).toString();
+        }
+
+        return node;
+    }
+
+    private buildTuicNode(
+        host: Extract<ResolvedProxyConfig, { protocol: 'tuic' }>,
+        isExtendedClient: boolean,
+        isStash: boolean,
+    ): ProxyNode | null {
+        if (host.security !== 'tls') return null;
+
+        const { serverName, pinnedPeerCertSha256, alpn } = host.securityOptions;
+        const { congestionControl } = host.protocolOptions;
+
+        const node: ProxyNode = {
+            name: host.finalRemark,
+            type: 'tuic',
+            server: host.address,
+            port: host.port,
+            udp: true,
+            ...(isStash && { version: 5 }),
+            uuid: host.protocolOptions.uuid,
+            password: host.protocolOptions.password,
+            // Stash spells the algorithm `new-reno`; Mihomo and sing-box use `new_reno`.
+            'congestion-controller':
+                isStash && congestionControl === 'new_reno' ? 'new-reno' : congestionControl,
+            ...(host.protocolOptions.zeroRttHandshake && { 'reduce-rtt': true }),
+            ...(serverName && { sni: serverName }),
+            ...(pinnedPeerCertSha256 && { 'skip-cert-verify': true }),
+            ...(alpn && { alpn: alpn.split(',') }),
+            'ip-version': host.clientOverrides.mihomoIpVersion ?? undefined,
         };
 
         if (isExtendedClient && host.clientOverrides.serverDescription) {

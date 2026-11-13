@@ -5,10 +5,18 @@ import { HashedSet } from '@remnawave/hashed-set';
 
 import { UserForConfigEntity } from '@modules/users/entities/users-for-config';
 
-import { getSsPassword, isSS2022MethodFromMethod } from '../xray-config/ss-cipher';
 import { ICoreConfig, ICoreConfigInbound } from './core-config.interface';
-
-const MANAGED_CLIENT_PROTOCOLS = new Set(['anytls', 'shadowsocks', 'trojan', 'vless']);
+import {
+    getSingBoxSsSupportedMethods,
+    getSingBoxSsUserPassword,
+    getSingBoxVlessFlow,
+    isSingBoxManagedInbound,
+    isSingBoxRealityEnabled,
+    isSingBoxSs2022Key,
+    isSingBoxSs2022Method,
+    isSingBoxSsMethodSupported,
+    isSingBoxTlsRequired,
+} from './singbox-inbound';
 
 type TJsonRecord = Record<string, unknown>;
 
@@ -26,8 +34,15 @@ interface ISingBoxInbound extends TJsonRecord {
         certificate_path?: string;
         key?: string | string[];
         key_path?: string;
+        reality?: {
+            enabled?: boolean;
+        };
+    };
+    multiplex?: {
+        enabled?: boolean;
     };
     method?: string;
+    password?: string;
     users?: TJsonRecord[];
 }
 
@@ -67,20 +82,20 @@ export class SingBoxConfig implements ICoreConfig {
 
     public getAllInbounds(): ICoreConfigInbound[] {
         return this.config.inbounds
-            .filter((inbound) => MANAGED_CLIENT_PROTOCOLS.has(inbound.type))
+            .filter((inbound) => isSingBoxManagedInbound(inbound))
             .map((inbound) => ({
                 tag: inbound.tag,
                 rawInbound: inbound,
                 type: inbound.type,
                 network: this.getNetwork(inbound),
-                security: inbound.tls?.enabled ? 'tls' : null,
+                security: this.getSecurity(inbound),
                 port: this.parsePort(inbound.listen_port),
             }));
     }
 
     public cleanInboundClients(): void {
         for (const inbound of this.config.inbounds) {
-            if (!MANAGED_CLIENT_PROTOCOLS.has(inbound.type)) continue;
+            if (!isSingBoxManagedInbound(inbound)) continue;
             inbound.users = [];
         }
     }
@@ -119,7 +134,7 @@ export class SingBoxConfig implements ICoreConfig {
 
     public leaveInbounds(tags: Set<string>): void {
         this.config.inbounds = this.config.inbounds.filter(
-            (inbound) => tags.has(inbound.tag) || !MANAGED_CLIENT_PROTOCOLS.has(inbound.type),
+            (inbound) => tags.has(inbound.tag) || !isSingBoxManagedInbound(inbound),
         );
         this.indexInbounds();
     }
@@ -131,10 +146,13 @@ export class SingBoxConfig implements ICoreConfig {
         for (const user of users) {
             for (const tag of user.tags) {
                 const inbound = this.inboundsByTag.get(tag);
-                if (!inbound || !MANAGED_CLIENT_PROTOCOLS.has(inbound.type)) continue;
+                if (!inbound || !isSingBoxManagedInbound(inbound)) continue;
+
+                const singBoxUser = this.toSingBoxUser(inbound, user);
+                if (!singBoxUser) continue;
 
                 inbound.users ??= [];
-                inbound.users.push(this.toSingBoxUser(inbound, user));
+                inbound.users.push(singBoxUser);
 
                 if (!inboundsUserSets.has(tag)) {
                     inboundsUserSets.set(tag, new HashedSet());
@@ -150,33 +168,39 @@ export class SingBoxConfig implements ICoreConfig {
         // sing-box uses a single tls.server_name value and needs no Xray-specific cleanup.
     }
 
-    private toSingBoxUser(inbound: ISingBoxInbound, user: UserForConfigEntity): TJsonRecord {
+    private toSingBoxUser(inbound: ISingBoxInbound, user: UserForConfigEntity): TJsonRecord | null {
         const name = user.id.toString();
 
         switch (inbound.type) {
             case 'anytls':
+            case 'hysteria2':
                 return {
                     name,
                     password: user.vlessUuid,
                 };
-            case 'vless':
+            case 'vless': {
+                const flow = getSingBoxVlessFlow(inbound);
                 return {
                     name,
                     uuid: user.vlessUuid,
+                    ...(flow && { flow }),
+                };
+            }
+            case 'tuic':
+                return {
+                    name,
+                    uuid: user.vlessUuid,
+                    password: user.vlessUuid,
                 };
             case 'trojan':
                 return {
                     name,
                     password: user.trojanPassword,
                 };
-            case 'shadowsocks':
-                return {
-                    name,
-                    password: getSsPassword(
-                        user.ssPassword,
-                        isSS2022MethodFromMethod(inbound.method),
-                    ),
-                };
+            case 'shadowsocks': {
+                const password = getSingBoxSsUserPassword(inbound, user.ssPassword);
+                return password === null ? null : { name, password };
+            }
             default:
                 throw new Error(`Protocol ${inbound.type} is not supported.`);
         }
@@ -231,10 +255,32 @@ export class SingBoxConfig implements ICoreConfig {
             ) {
                 throw new Error(`Invalid listen_port in inbound "${inbound.tag}".`);
             }
-            if (inbound.type === 'anytls' && !inbound.tls?.enabled) {
-                throw new Error(`AnyTLS inbound "${inbound.tag}" requires tls.enabled.`);
-            }
+            this.validateManagedInbound(inbound);
             seenTags.add(inbound.tag);
+        }
+    }
+
+    private validateManagedInbound(inbound: ISingBoxInbound): void {
+        if (!isSingBoxManagedInbound(inbound)) return;
+
+        if (isSingBoxTlsRequired(inbound.type) && !inbound.tls?.enabled) {
+            throw new Error(`${inbound.type} inbound "${inbound.tag}" requires tls.enabled.`);
+        }
+
+        if (inbound.type !== 'shadowsocks') return;
+
+        if (!isSingBoxSsMethodSupported(inbound.method)) {
+            throw new Error(
+                `Shadowsocks inbound "${inbound.tag}" uses unsupported method "${inbound.method}". ` +
+                    `Supported methods: ${getSingBoxSsSupportedMethods().join(', ')}.`,
+            );
+        }
+
+        if (isSingBoxSs2022Method(inbound.method) && !isSingBoxSs2022Key(inbound.password)) {
+            throw new Error(
+                `Shadowsocks inbound "${inbound.tag}" requires a base64 32-byte server key in "password" ` +
+                    '(sing-box generate rand --base64 32).',
+            );
         }
     }
 
@@ -249,8 +295,22 @@ export class SingBoxConfig implements ICoreConfig {
         if (inbound.transport?.type) return inbound.transport.type;
         if (typeof inbound.network === 'string') return inbound.network;
         if (Array.isArray(inbound.network)) return inbound.network.join(',');
-        if (inbound.type === 'anytls') return 'tcp';
-        return null;
+        switch (inbound.type) {
+            case 'anytls':
+            case 'trojan':
+            case 'vless':
+                return 'tcp';
+            case 'hysteria2':
+            case 'tuic':
+                return 'quic';
+            default:
+                return null;
+        }
+    }
+
+    private getSecurity(inbound: ISingBoxInbound): string | null {
+        if (isSingBoxRealityEnabled(inbound)) return 'reality';
+        return inbound.tls?.enabled ? 'tls' : null;
     }
 
     private parsePort(port: number | undefined): number | null {

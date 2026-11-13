@@ -3,6 +3,7 @@ import { IEventHandler, QueryBus } from '@nestjs/cqrs';
 import { EventsHandler } from '@nestjs/cqrs';
 
 import { TAddUsersToNodeRequest } from '@common/axios';
+import { getSingBoxNodeUserType, isSingBoxRawInbound } from '@common/helpers/core-config';
 import { isSS2022Method } from '@common/helpers/xray-config/ss-cipher';
 import { getVlessFlowFromDbInbound } from '@common/utils/flow/get-vless-flow';
 
@@ -95,6 +96,8 @@ export class AddUsersToNodeHandler implements IEventHandler<AddUsersToNodeEvent>
                                     return { type: inboundType, tag: inbound.tag };
                                 case 'anytls':
                                     return { type: inboundType, tag: inbound.tag };
+                                case 'tuic':
+                                    return { type: inboundType, tag: inbound.tag };
                                 default:
                                     throw new Error(`Unsupported inbound type: ${inboundType}`);
                             }
@@ -132,6 +135,9 @@ export class AddUsersToNodeHandler implements IEventHandler<AddUsersToNodeEvent>
     }
 
     private resolveInboundType(inbound: ConfigProfileInboundEntity): string {
+        if (isSingBoxRawInbound(inbound.rawInbound)) {
+            return getSingBoxNodeUserType(inbound.rawInbound) ?? inbound.type;
+        }
         if (inbound.type === 'shadowsocks' && isSS2022Method(inbound.rawInbound)) {
             return 'shadowsocks22';
         }

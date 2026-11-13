@@ -18,13 +18,15 @@ Therefore:
 
 This is a client compatibility requirement, not a Zap-Hosting panel configuration defect.
 
-The default sing-box subscription template is validated with the official sing-box `1.13.15`
+The default sing-box subscription template is validated with the official sing-box `1.14.4`
 binary. It uses the `route` `action: sniff` rule instead of removed inbound `sniff` fields,
 typed DNS/TCP/TLS/FakeIP servers instead of legacy `address` servers, merged TUN `address`
-fields, and `route.default_domain_resolver`. The default output therefore does not require
-`ENABLE_DEPRECATED_*` compatibility environment variables. Custom SINGBOX templates are not
-rewritten automatically; they must be migrated and validated by their owner before use. On
-startup, the reserved `Default` template is refreshed only when legacy DNS/inbound markers are
+fields, and `route.default_domain_resolver`. It omits `dns.independent_cache`, which sing-box
+1.14 deprecates. The validator fails if `sing-box check` reports any deprecated field, so the
+default output does not require `ENABLE_DEPRECATED_*` compatibility environment variables on
+current or next-minor clients. Custom SINGBOX templates are not rewritten automatically; they
+must be migrated and validated by their owner before use. On startup, the reserved `Default`
+template is refreshed only when legacy DNS/inbound markers, including `independent_cache`, are
 detected; named custom templates are not overwritten.
 
 The default template also omits the Android-only `route.override_android_vpn` option so the

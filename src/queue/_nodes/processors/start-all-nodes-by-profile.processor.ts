@@ -7,6 +7,7 @@ import { Logger, Scope } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 
 import { AxiosService } from '@common/axios/axios.service';
+import { SINGBOX_MANAGED_INBOUND_TYPES } from '@common/helpers/core-config';
 import { RawCacheService } from '@common/raw-cache';
 import { CACHE_KEYS, CACHE_KEYS_TTL, CONFIG_PROFILE_CORE_TYPE } from '@libs/contracts/constants';
 import type { TConfigProfileCoreType } from '@libs/contracts/constants';
@@ -417,11 +418,8 @@ export class StartAllNodesByProfileQueueProcessor extends WorkerHost {
         coreType: TConfigProfileCoreType,
         inbound: Record<string, unknown>,
     ): boolean {
-        const protocol =
-            coreType === CONFIG_PROFILE_CORE_TYPE.SINGBOX ? inbound.type : inbound.protocol;
-
         return coreType === CONFIG_PROFILE_CORE_TYPE.SINGBOX
-            ? ['anytls', 'shadowsocks', 'trojan', 'vless'].includes(String(protocol))
-            : ['hysteria', 'shadowsocks', 'trojan', 'vless'].includes(String(protocol));
+            ? SINGBOX_MANAGED_INBOUND_TYPES.has(String(inbound.type))
+            : ['hysteria', 'shadowsocks', 'trojan', 'vless'].includes(String(inbound.protocol));
     }
 }
