@@ -9,12 +9,13 @@ import { applyHostMapper } from '../host-mapper';
 import { ResolvedProxyConfig } from '../resolve-proxy/interfaces';
 
 /**
- * Target: sing-box 1.13.x
+ * Target: sing-box 1.14.x
  * Reference: https://sing-box.sagernet.org/configuration/
  */
 
 interface OutboundConfig {
     brutal_debug?: boolean;
+    congestion_control?: string;
     down_mbps?: number;
     flow?: string;
     domain_resolver?: {
@@ -37,16 +38,16 @@ interface OutboundConfig {
     type: string;
     up_mbps?: number;
     uuid?: string;
+    zero_rtt_handshake?: boolean;
     udp_over_tcp?: {
         enabled: boolean;
         version?: number;
     };
 }
 
-interface ObfsConfig {
-    password: string;
-    type: 'salamander';
-}
+type ObfsConfig =
+    | { password: string; type: 'salamander' }
+    | { max_packet_size?: number; min_packet_size?: number; password: string; type: 'gecko' };
 
 interface MultiplexConfig {
     brutal?: {
@@ -98,7 +99,7 @@ interface Hysteria2FinalMask {
         };
     };
     udp?: Array<{
-        settings?: { password?: string };
+        settings?: { packetSize?: number | string; password?: string };
         type?: string;
     }>;
 }
@@ -110,6 +111,7 @@ const PROXY_PROTOCOL_TYPES = new Set([
     'hysteria2',
     'shadowsocks',
     'trojan',
+    'tuic',
     'vless',
 ]);
 const SELECTOR_TYPES = new Set([...PROXY_PROTOCOL_TYPES, 'urltest']);
@@ -166,6 +168,10 @@ export class SingBoxGeneratorService {
     private buildBaseOutbound(host: ResolvedProxyConfig): null | OutboundConfig {
         if (host.protocol === 'hysteria') {
             return this.buildHysteria2Outbound(host);
+        }
+
+        if (host.protocol === 'tuic') {
+            return this.buildTuicOutbound(host);
         }
 
         const config: OutboundConfig = {
@@ -320,6 +326,24 @@ export class SingBoxGeneratorService {
         return config;
     }
 
+    private buildTuicOutbound(
+        host: Extract<ResolvedProxyConfig, { protocol: 'tuic' }>,
+    ): null | OutboundConfig {
+        if (host.security !== 'tls') return null;
+
+        return {
+            type: 'tuic',
+            tag: host.finalRemark,
+            server: host.address,
+            server_port: host.port,
+            uuid: host.protocolOptions.uuid,
+            password: host.protocolOptions.password,
+            congestion_control: host.protocolOptions.congestionControl,
+            ...(host.protocolOptions.zeroRttHandshake && { zero_rtt_handshake: true }),
+            tls: this.buildQuicTlsConfig(host),
+        };
+    }
+
     private buildObfsConfig(finalMask: Hysteria2FinalMask | null): null | ObfsConfig {
         if (!Array.isArray(finalMask?.udp)) return null;
 
@@ -327,9 +351,23 @@ export class SingBoxGeneratorService {
             (item) => item?.type === 'salamander' && item.settings?.password,
         );
 
-        if (!mask?.settings?.password) return null;
+        const password = mask?.settings?.password;
+        if (!password) return null;
 
-        return { type: 'salamander', password: mask.settings.password };
+        // Xray models Gecko as a salamander mask with a packet size range.
+        const packetSize = mask.settings?.packetSize;
+        if (packetSize === undefined || packetSize === '') {
+            return { type: 'salamander', password };
+        }
+
+        const { from, to } = parseIntRangeUtil(packetSize);
+
+        return {
+            type: 'gecko',
+            password,
+            ...(from && { min_packet_size: from }),
+            ...(to && { max_packet_size: to }),
+        };
     }
 
     private parseMbps(value: unknown): null | number {

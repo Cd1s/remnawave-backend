@@ -67,6 +67,7 @@ jobs:
           "$binary" -v
 
       - run: npm run validate:singbox-compatibility
+      - run: npm run validate:singbox-inbounds
       - run: npm run validate:mihomo-anytls
       - run: npm run validate:clash-anytls
       - run: npm run build

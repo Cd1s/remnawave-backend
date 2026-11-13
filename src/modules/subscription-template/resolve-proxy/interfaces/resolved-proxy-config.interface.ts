@@ -30,6 +30,13 @@ export interface IAnyTlsProtocolOptions {
     password: string;
 }
 
+export interface ITuicProtocolOptions {
+    uuid: string;
+    password: string;
+    congestionControl: string;
+    zeroRttHandshake: boolean;
+}
+
 // ─── Transport Options ───────────────────────────────────
 
 export interface ITcpTransportOptions {
@@ -124,12 +131,19 @@ export type AnyTlsProtocol = {
     protocolOptions: IAnyTlsProtocolOptions;
 };
 
+// TUIC carries no V2Ray transport; like AnyTLS it resolves with the `tcp` transport variant.
+export type TuicProtocol = {
+    protocol: 'tuic';
+    protocolOptions: ITuicProtocolOptions;
+};
+
 export type ProtocolVariant =
     | VlessProtocol
     | TrojanProtocol
     | ShadowsocksProtocol
     | HysteriaProtocol
-    | AnyTlsProtocol;
+    | AnyTlsProtocol
+    | TuicProtocol;
 
 // ─── Transport Variants ──────────────────────────────────
 

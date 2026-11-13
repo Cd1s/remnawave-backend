@@ -90,6 +90,13 @@ export const AnyTlsProtocolOptionsSchema = z.object({
     password: z.string(),
 });
 
+export const TuicProtocolOptionsSchema = z.object({
+    uuid: z.string(),
+    password: z.string(),
+    congestionControl: z.string(),
+    zeroRttHandshake: z.boolean(),
+});
+
 export const HysteriaTransportOptionsSchema = z.object({
     version: z.int(),
     auth: z.string(),
@@ -142,12 +149,18 @@ const AnyTlsProtocolSchema = z.object({
     protocolOptions: AnyTlsProtocolOptionsSchema,
 });
 
+const TuicProtocolSchema = z.object({
+    protocol: z.literal('tuic'),
+    protocolOptions: TuicProtocolOptionsSchema,
+});
+
 export const ProtocolVariantSchema = z.discriminatedUnion('protocol', [
     VlessProtocolSchema.meta({ title: 'vless' }),
     TrojanProtocolSchema.meta({ title: 'trojan' }),
     ShadowsocksProtocolSchema.meta({ title: 'shadowsocks' }),
     HysteriaProtocolSchema.meta({ title: 'hysteria' }),
     AnyTlsProtocolSchema.meta({ title: 'anytls' }),
+    TuicProtocolSchema.meta({ title: 'tuic' }),
 ]);
 
 const TcpTransportSchema = z.object({

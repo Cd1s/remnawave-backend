@@ -4,6 +4,11 @@ import { EventsHandler } from '@nestjs/cqrs';
 
 import { TAddUserToNodeRequest } from '@common/axios';
 import {
+    getSingBoxNodeUserType,
+    getSingBoxSs2022UserKey,
+    isSingBoxRawInbound,
+} from '@common/helpers/core-config';
+import {
     getCipherTypeFromString,
     getSsPassword,
     isSS2022Method,
@@ -55,55 +60,82 @@ export class AddUserToNodeHandler implements IEventHandler<AddUserToNodeEvent> {
                     prevVlessUuid: event.prevVlessUuid,
                 },
 
-                data: inbounds.map((inbound) => {
+                data: inbounds.flatMap((inbound): TAddUserToNodeRequest['data'] => {
                     const inboundType = this.resolveInboundType(inbound);
 
                     switch (inboundType) {
                         case 'trojan':
-                            return {
-                                type: inboundType,
-                                username: id.toString(),
-                                password: trojanPassword,
-                                tag: inbound.tag,
-                            };
+                            return [
+                                {
+                                    type: inboundType,
+                                    username: id.toString(),
+                                    password: trojanPassword,
+                                    tag: inbound.tag,
+                                },
+                            ];
                         case 'vless':
-                            return {
-                                type: inboundType,
-                                username: id.toString(),
-                                uuid: vlessUuid,
-                                flow: getVlessFlowFromDbInbound(inbound),
-                                tag: inbound.tag,
-                            };
+                            return [
+                                {
+                                    type: inboundType,
+                                    username: id.toString(),
+                                    uuid: vlessUuid,
+                                    flow: getVlessFlowFromDbInbound(inbound),
+                                    tag: inbound.tag,
+                                },
+                            ];
                         case 'shadowsocks':
-                            return {
-                                type: inboundType,
-                                username: id.toString(),
-                                password: ssPassword,
-                                tag: inbound.tag,
-                                cipherType: getCipherTypeFromString(inbound.rawInbound),
-                                ivCheck: false,
-                            };
-                        case 'shadowsocks22':
-                            return {
-                                type: inboundType,
-                                username: id.toString(),
-                                password: getSsPassword(ssPassword, true),
-                                tag: inbound.tag,
-                            };
+                            return [
+                                {
+                                    type: inboundType,
+                                    username: id.toString(),
+                                    password: ssPassword,
+                                    tag: inbound.tag,
+                                    cipherType: getCipherTypeFromString(inbound.rawInbound),
+                                    ivCheck: false,
+                                },
+                            ];
+                        case 'shadowsocks22': {
+                            const password = isSingBoxRawInbound(inbound.rawInbound)
+                                ? getSingBoxSs2022UserKey(ssPassword)
+                                : getSsPassword(ssPassword, true);
+                            if (password === null) return [];
+                            return [
+                                {
+                                    type: inboundType,
+                                    username: id.toString(),
+                                    password,
+                                    tag: inbound.tag,
+                                },
+                            ];
+                        }
                         case 'hysteria':
-                            return {
-                                type: inboundType,
-                                username: id.toString(),
-                                password: vlessUuid,
-                                tag: inbound.tag,
-                            };
+                            return [
+                                {
+                                    type: inboundType,
+                                    username: id.toString(),
+                                    password: vlessUuid,
+                                    tag: inbound.tag,
+                                },
+                            ];
                         case 'anytls':
-                            return {
-                                type: inboundType,
-                                username: id.toString(),
-                                password: vlessUuid,
-                                tag: inbound.tag,
-                            };
+                            return [
+                                {
+                                    type: inboundType,
+                                    username: id.toString(),
+                                    password: vlessUuid,
+                                    tag: inbound.tag,
+                                },
+                            ];
+                        case 'tuic':
+                            return [
+                                {
+                                    type: inboundType,
+                                    username: id.toString(),
+                                    uuid: vlessUuid,
+                                    password: vlessUuid,
+                                    tag: inbound.tag,
+                                },
+                            ];
                         default:
                             throw new Error(`Unsupported inbound type: ${inboundType}`);
                     }
@@ -157,6 +189,9 @@ export class AddUserToNodeHandler implements IEventHandler<AddUserToNodeEvent> {
     }
 
     private resolveInboundType(inbound: ConfigProfileInboundEntity): string {
+        if (isSingBoxRawInbound(inbound.rawInbound)) {
+            return getSingBoxNodeUserType(inbound.rawInbound) ?? inbound.type;
+        }
         if (inbound.type === 'shadowsocks' && isSS2022Method(inbound.rawInbound)) {
             return 'shadowsocks22';
         }

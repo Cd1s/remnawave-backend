@@ -112,6 +112,8 @@ jobs:
 
       - run: npm run validate:singbox-compatibility
         if: steps.sync.outcome == 'success'
+      - run: npm run validate:singbox-inbounds
+        if: steps.sync.outcome == 'success'
       - run: npm run validate:mihomo-anytls
         if: steps.sync.outcome == 'success'
       - run: npm run validate:clash-anytls

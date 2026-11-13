@@ -13,7 +13,9 @@ export async function resolveInboundAndPublicKey(inbounds: any[]): Promise<Map<s
     const publicKeyMap = new Map<string, string>();
 
     for (const inbound of inbounds) {
-        const privateKey = inbound.streamSettings?.realitySettings?.privateKey;
+        const privateKey =
+            inbound.streamSettings?.realitySettings?.privateKey ??
+            inbound.tls?.reality?.private_key;
 
         if (!privateKey || publicKeyMap.has(inbound.tag)) {
             continue;

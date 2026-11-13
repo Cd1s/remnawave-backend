@@ -25,8 +25,9 @@ The `singbox` branch adds or preserves:
 - `config_profiles.core_type`, defaulting to `xray`;
 - a core-config abstraction that can process Xray and sing-box profiles;
 - preservation of native sing-box JSON field names and inbound JSON;
-- sing-box/AnyTLS user injection and Node command metadata;
-- AnyTLS output for sing-box JSON and Shadowrocket-compatible subscriptions;
+- sing-box user injection and Node command metadata for AnyTLS, VLESS, Trojan, Shadowsocks,
+  Hysteria2 and TUIC inbounds;
+- sing-box JSON, Mihomo/Stash and share-link (Shadowrocket) output for those inbounds;
 - Xray-compatible API paths, response fields, existing profiles, subscriptions, and migrations;
 - tested upstream synchronization and multi-architecture fork images.
 
@@ -41,6 +42,7 @@ Important implementation areas include:
 - `prisma/migrations/`
 - `scripts/validate-seed-core-inbounds.cjs`
 - `scripts/validate-shadowrocket-anytls.cjs`
+- `scripts/validate-singbox-inbounds.cjs`
 
 Do not assume this list is exhaustive. Compare the branch with `upstream/main` before modifying
 fork behavior:
@@ -58,10 +60,11 @@ These conditions must remain true after every upstream merge or custom feature:
 2. Existing Xray routes and wire fields continue to work.
 3. A sing-box profile survives API storage and retrieval without camel-casing native JSON keys.
 4. Updating or starting a sing-box profile does not discard its inbounds.
-5. AnyTLS users use the established Remnawave identity mapping and remain attributable in traffic
-   statistics.
-6. Xray JSON subscriptions do not claim support for AnyTLS.
-7. Shadowrocket and sing-box subscription output remains covered by regression validation.
+5. Managed sing-box users use the established Remnawave identity mapping (name = user ID) and
+   remain attributable in traffic statistics. `singbox-inbound.ts` owns the credential rules for
+   injection, Node commands and subscriptions alike.
+6. Xray JSON subscriptions do not claim support for AnyTLS or TUIC.
+7. Shadowrocket, Mihomo and sing-box subscription output remains covered by regression validation.
 8. Database migrations are additive and safe for an existing Xray installation. Never rewrite or
    delete an already published migration to resolve an upstream conflict.
 
@@ -131,6 +134,7 @@ npm run build
 npm run build:seed
 npm run validate:seed-core-inbounds
 npm run validate:shadowrocket-anytls
+SINGBOX_BIN=... MIHOMO_BIN=... npm run validate:singbox-inbounds
 npm run check
 ```
 

@@ -38,6 +38,7 @@
     "validate:clash-anytls": "node scripts/validate-clash-anytls.cjs",
     "validate:mihomo-anytls": "node scripts/validate-mihomo-anytls.cjs",
     "validate:singbox-compatibility": "node scripts/validate-singbox-compatibility.cjs",
+    "validate:singbox-inbounds": "node scripts/validate-singbox-inbounds.cjs",
     "validate:shadowrocket-anytls": "node scripts/validate-shadowrocket-anytls.cjs",
     "validate:seed-core-inbounds": "node scripts/validate-seed-core-inbounds.cjs",
     "validate:upstream-adaptation": "node scripts/validate-upstream-adaptation.cjs"

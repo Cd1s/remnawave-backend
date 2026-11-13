@@ -1,5 +1,10 @@
 import { InboundConfig } from 'xray-typed';
 
+import {
+    getSingBoxVlessFlow,
+    isSingBoxRawInbound,
+} from '@common/helpers/core-config/singbox-inbound';
+
 import { ConfigProfileInboundEntity } from '@modules/config-profiles/entities';
 
 interface VlessSettingsWithFlow {
@@ -48,6 +53,10 @@ export const getVlessFlow = (inbound: InboundConfig): 'xtls-rprx-vision' | '' =>
 export function getVlessFlowFromDbInbound(
     inbound: ConfigProfileInboundEntity,
 ): 'xtls-rprx-vision' | '' {
+    if (isSingBoxRawInbound(inbound.rawInbound)) {
+        return getSingBoxVlessFlow(inbound.rawInbound);
+    }
+
     if (inbound.type === 'vless') {
         if (inbound.rawInbound && hasVlessSettingsWithFlow(inbound.rawInbound)) {
             if (inbound.rawInbound.settings.flow === 'xtls-rprx-vision') {
